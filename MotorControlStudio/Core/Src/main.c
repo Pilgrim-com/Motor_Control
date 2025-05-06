@@ -52,17 +52,17 @@ TIM_HandleTypeDef htim5;
 MOTOR prismatic_motor;
 MOTOR revolute_motor;
 
-float target_position = 350.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
+float target_position = 7.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
 
 // PID_Velocity gain
-float Kp_velo = 75.0;
-float Ki_velo = 7.0;
+float Kp_velo = 7500.0;
+float Ki_velo = 50.0;
 float Kd_velo = 0.0;
 float output_velo = 0.00;
 float error_velo = 0.00;
 
 // PID_Position gain
-float Kp_pos = 5.0;
+float Kp_pos = 3.0;
 float Ki_pos = 0.0;
 float Kd_pos = 0.0;
 float output_pos = 0.00;
@@ -70,11 +70,12 @@ float error_pos = 0.00;
 //PID_Position CMSIS
 arm_pid_instance_f32 PID_POS = {0};
 
+
 int32_t setpoint = 0;
 
-QEI prismatic_encoder;
-CONTROLLER prismatic_pos_control;
-CONTROLLER prismatic_vel_control;
+QEI revolute_encoder;
+CONTROLLER revolute_pos_control;
+CONTROLLER revolute_vel_control;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -129,19 +130,20 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+
+
+//	MotorInit(&prismatic_motor, &htim1, TIM_CHANNEL_3, GPIOC, GPIO_PIN_7);
+	MotorInit(&revolute_motor, &htim1, TIM_CHANNEL_2, GPIOC, GPIO_PIN_6);
+
+	QEIInit(&revolute_encoder, &htim4, 8192, 1000, 65536);
+
+	PIDInit(&revolute_pos_control, 11, -11);
+	PIDInit(&revolute_vel_control, 65535, -65535);
+
 	PID_POS.Kp =Kp_pos;
 	PID_POS.Ki =Ki_pos;
 	PID_POS.Kd = Kd_pos;
 	arm_pid_init_f32(&PID_POS, 0);
-
-	MotorInit(&prismatic_motor, &htim1, TIM_CHANNEL_3, GPIOC, GPIO_PIN_7);
-	MotorInit(&revolute_motor, &htim1, TIM_CHANNEL_2, GPIOC, GPIO_PIN_6);
-
-	QEIInit(&prismatic_encoder, &htim4, 8192, 1000, 65536);
-//	QEIInit(&revolute_motor, &htim3, 8192, 1000, 65536);
-
-	PIDInit(&prismatic_pos_control, 340, -340);
-	PIDInit(&prismatic_vel_control, 65535, -65535);
 
 	HAL_TIM_Base_Start_IT(&htim5);
 
@@ -164,6 +166,11 @@ int main(void)
 //
 	    // sin Wave
 //		target_velocity = 200*sin(2*M_PI*5*(HAL_GetTick()/10e3));
+
+
+		PID_POS.Kp =Kp_pos;
+		PID_POS.Ki =Ki_pos;
+		PID_POS.Kd = Kd_pos;
 	}
   /* USER CODE END 3 */
 }
@@ -506,27 +513,27 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void Prismatic_CasCadeControl() {
-	error_pos = target_position - prismatic_encoder.rads;
 
-	output_pos = arm_pid_f32(&PID, error_pos);
+	error_pos = target_position - revolute_encoder.rads;
 
-	if (output_pos > 340) {output_pos = 340;}
-	else if (output_pos < -340) {output_pos = -340;}
+	output_pos = arm_pid_f32(&PID_POS, error_pos);
 
+	if (output_pos > 10) {output_pos = 10;}
+	else if (output_pos < -10) {output_pos = -10;}
 
-	error_velo = output_pos - prismatic_encoder.radps;
+	error_velo = output_pos - revolute_encoder.radps;
 
-	output_velo = PIDCompute(&prismatic_vel_control, Kp_velo, Ki_velo, Kd_velo, error_velo);
+	output_velo = PIDCompute(&revolute_vel_control, Kp_velo, Ki_velo, Kd_velo, error_velo);
 
 	// Motor control
-	MotorSet(&prismatic_motor, 1000, output_velo);
+	MotorSet(&revolute_motor, 1000, output_velo);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 	if (htim == &htim2) {
 		Prismatic_CasCadeControl();
-		QEIPosVelUpdate(&prismatic_encoder);
+		QEIPosVelUpdate(&revolute_encoder);
 	}
 
 }
