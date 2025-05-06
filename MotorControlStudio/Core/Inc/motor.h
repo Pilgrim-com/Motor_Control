@@ -1,10 +1,3 @@
-/*
- * motor.h
- *
- *  Created on: May 2, 2025
- *      Author: jirat
- */
-
 #ifndef INC_MOTOR_H_
 #define INC_MOTOR_H_
 
@@ -26,7 +19,7 @@ typedef struct
 }MOTOR;
 
 void MotorInit(MOTOR* pwm, TIM_HandleTypeDef* htimx, uint16_t tim_chx, GPIO_TypeDef* gpiox, uint16_t motor_pin);
-void MotorSet(MOTOR* MOTOR, float freq, float val, GPIO_PinState dir);
+void MotorSet(MOTOR* MOTOR, float freq, float val);
 
 
 #endif /* INC_MOTOR_H_ */

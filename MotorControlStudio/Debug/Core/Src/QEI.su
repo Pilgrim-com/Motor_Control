@@ -1,0 +1,2 @@
+../Core/Src/QEI.c:12:6:QEIInit	32	static
+../Core/Src/QEI.c:32:6:QEIPosVelUpdate	24	static

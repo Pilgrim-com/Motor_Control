@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include "motor.h"
 #include "arm_math.h"
+#include "QEI.h"
+#include "PID.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,46 +49,32 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim5;
 
 /* USER CODE BEGIN PV */
-typedef struct {
-//for record New / Old value to calculate dx / dt
-	uint32_t Position[2];
-	uint64_t TimeStamp[2];
-	float QEIPostion_1turn;
-	float QEIAngularVelocity;
-} QEI_StructureTypeDef;
-
-QEI_StructureTypeDef QEIdata = { 0 };
-uint64_t _micros = 0;
-enum {
-	NEW, OLD
-};
-
 MOTOR prismatic_motor;
 MOTOR revolute_motor;
 
-float target_velocity = 7.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
-float velocity_error_integral = 0;
-float last_velocity_error = 0;
+float target_position = 350.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
 
-// PID gain
-float Kp = 20.0;
-float Ki = 5.0;
-float Kd = 0.0;
-float output = 0.00;
-float error = 0.00;
+// PID_Velocity gain
+float Kp_velo = 75.0;
+float Ki_velo = 7.0;
+float Kd_velo = 0.0;
+float output_velo = 0.00;
+float error_velo = 0.00;
 
-uint32_t last_toggle_time = 0;
-uint8_t velocity_sign = 1;  // 1 = +7, 0 = -7
+// PID_Position gain
+float Kp_pos = 5.0;
+float Ki_pos = 0.0;
+float Kd_pos = 0.0;
+float output_pos = 0.00;
+float error_pos = 0.00;
+//PID_Position CMSIS
+arm_pid_instance_f32 PID_POS = {0};
 
+int32_t setpoint = 0;
 
-//PID CMSIS
-arm_pid_instance_f32 PID_VELO = {0};
-float velo =0;
-float setvelo =0;
-float Vfeedback = 0;
-
-
-
+QEI prismatic_encoder;
+CONTROLLER prismatic_pos_control;
+CONTROLLER prismatic_vel_control;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -97,8 +85,9 @@ static void MX_TIM5_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-uint64_t micros();
-void QEIEncoderPosVel_Update();
+//uint64_t micros();
+//void QEIEncoderPosVel_Update();
+//void CasCadeControl();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -140,22 +129,23 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+	PID_POS.Kp =Kp_pos;
+	PID_POS.Ki =Ki_pos;
+	PID_POS.Kd = Kd_pos;
+	arm_pid_init_f32(&PID_POS, 0);
 
-  // PID cmsis
-  PID_VELO.Kp =Kp;
-  PID_VELO.Ki =Ki;
-  PID_VELO.Kd = Kd;
-  arm_pid_init_f32(&PID_VELO, 0);
+	MotorInit(&prismatic_motor, &htim1, TIM_CHANNEL_3, GPIOC, GPIO_PIN_7);
+	MotorInit(&revolute_motor, &htim1, TIM_CHANNEL_2, GPIOC, GPIO_PIN_6);
 
+	QEIInit(&prismatic_encoder, &htim4, 8192, 1000, 65536);
+//	QEIInit(&revolute_motor, &htim3, 8192, 1000, 65536);
 
-//	MotorInit(&prismatic_motor, &htim1, TIM_CHANNEL_3, GPIOC, GPIO_PIN_7);
-	MotorInit(&revolute_motor, &htim1, TIM_CHANNEL_3, GPIOC, GPIO_PIN_7);
+	PIDInit(&prismatic_pos_control, 340, -340);
+	PIDInit(&prismatic_vel_control, 65535, -65535);
 
-	HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
 	HAL_TIM_Base_Start_IT(&htim5);
 
 	HAL_TIM_Base_Start_IT(&htim2);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -164,21 +154,16 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
 		// square wave
-
 //	    if (HAL_GetTick() - last_toggle_time >= 5000)  // 5 วินาที
 //	    {
 //	        last_toggle_time = HAL_GetTick();          // รีเซ็ตเวลา
 //	        velocity_sign = !velocity_sign;            // Toggle สัญญาณ
-//	        target_velocity = (velocity_sign ? 200.0f : -200.0f);
+//	        target_position = (velocity_sign ? 200.0f : -200.0f);
 //	    }
-
+//
 	    // sin Wave
-
-		target_velocity = 200*sin(2*M_PI*5*(HAL_GetTick()/10e3));
-
-
+//		target_velocity = 200*sin(2*M_PI*5*(HAL_GetTick()/10e3));
 	}
   /* USER CODE END 3 */
 }
@@ -520,69 +505,69 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void VelocityControl() {
+void Prismatic_CasCadeControl() {
+	error_pos = target_position - prismatic_encoder.rads;
 
-	error = target_velocity - QEIdata.QEIAngularVelocity;
+	output_pos = arm_pid_f32(&PID, error_pos);
 
-//	// Integral term (scaled by time)
-//	velocity_error_integral += error * dt;
-//
-//	// Anti-windup
-//	if (velocity_error_integral > 1000) velocity_error_integral = 1000;
-//	else if (velocity_error_integral < -1000) velocity_error_integral = -1000;
-//
-//
-//	// PID output
-//	output = Kp * error + Ki * velocity_error_integral;
+	if (output_pos > 340) {output_pos = 340;}
+	else if (output_pos < -340) {output_pos = -340;}
 
-	output = arm_pid_f32(&PID_VELO, error);
 
-	// Clamp output
-	if (output > 65535) output = 65535;
-	else if (output < -65535) output = -65535;
+	error_velo = output_pos - prismatic_encoder.radps;
+
+	output_velo = PIDCompute(&prismatic_vel_control, Kp_velo, Ki_velo, Kd_velo, error_velo);
 
 	// Motor control
-	MotorSet(&revolute_motor, 1000, fabs(output), output >= 0 ? GPIO_PIN_RESET : GPIO_PIN_SET);
-
-	// Store error for next loop
-	last_velocity_error = error;
+	MotorSet(&prismatic_motor, 1000, output_velo);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	if (htim == &htim5) {
-		_micros += UINT32_MAX;
-	}
 
 	if (htim == &htim2) {
-//		MotorSet(&prismatic_motor, 2000, 65535, GPIO_PIN_SET);
-		QEIEncoderPosVel_Update();
-		VelocityControl();
+		Prismatic_CasCadeControl();
+		QEIPosVelUpdate(&prismatic_encoder);
 	}
 
 }
 
-uint64_t micros() {
-	return __HAL_TIM_GET_COUNTER(&htim5) + _micros;
-}
+//uint64_t micros() {
+//	return __HAL_TIM_GET_COUNTER(&htim5) + _micros;
+//}
 
-void QEIEncoderPosVel_Update() {
-	QEIdata.TimeStamp[NEW] = micros();
-	QEIdata.Position[NEW] = __HAL_TIM_GET_COUNTER(&htim4);
-	QEIdata.QEIPostion_1turn = (QEIdata.Position[NEW] / 8192) * 1800;
-	int32_t diffPosition = QEIdata.Position[NEW] - QEIdata.Position[OLD];
-	if (diffPosition > (65535 / 2))
-		diffPosition -= 65535;
-	else if (diffPosition < -(65535 / 2))
-		diffPosition += 65535;
-	float diffTime = (QEIdata.TimeStamp[NEW] - QEIdata.TimeStamp[OLD])
-			* 0.000001;
-	if (diffTime == 0)
-		return;
-	QEIdata.QEIAngularVelocity = (float) (diffPosition / diffTime) * ((2.0*M_PI)/8192);
-	QEIdata.Position[OLD] = QEIdata.Position[NEW];
-	QEIdata.TimeStamp[OLD] = QEIdata.TimeStamp[NEW];
-}
-
+//void QEIEncoderPosVel_Update() {
+//	QEIdata.TimeStamp[NEW] = micros();
+//	QEIdata.Position[NEW] = __HAL_TIM_GET_COUNTER(&htim4);
+//	QEIdata.QEIPostion_1turn = (QEIdata.Position[NEW] / 8192) * 16.00;
+//	int32_t diffPosition = QEIdata.Position[NEW] - QEIdata.Position[OLD];
+//	if (diffPosition > (65536 / 2))
+//		diffPosition -= 65535;
+//	else if (diffPosition < -(65536 / 2))
+//		diffPosition += 65535;
+//	float diffTime = (QEIdata.TimeStamp[NEW] - QEIdata.TimeStamp[OLD])
+//			* 0.000001;
+//	if (diffTime == 0)
+//		return;
+//	QEIdata.QEIAngularVelocity = (float) (diffPosition / diffTime) * ((2.0*M_PI)/8192.0);
+//
+//	QEIdata.QEIPosition_tick += diffPosition;
+//	QEIdata.QEIPosition_rad = QEIdata.QEIPosition_tick * ((2.0*M_PI)/8192.0);
+//
+//
+//	QEIdata.pulses += diffPosition;
+//	QEIdata.revs += diffPosition/(float)(8192.0);
+//	QEIdata.rads += diffPosition/(float)(8192.0)*2*M_PI;
+//
+//	QEIdata.Position[OLD] = QEIdata.Position[NEW];
+//	QEIdata.TimeStamp[OLD] = QEIdata.TimeStamp[NEW];
+//
+//	QEIdata.pps = diffPosition*1000;
+//	QEIdata.rpm = (float)QEIdata.pps*60.0/8192.0;
+//	QEIdata.radps = (float)QEIdata.pps*2*M_PI/8192.0;
+//
+//
+//
+//}
 /* USER CODE END 4 */
 
 /**
