@@ -1,3 +1,4 @@
+"./Core/Src/Kalman.o"
 "./Core/Src/PID.o"
 "./Core/Src/QEI.o"
 "./Core/Src/main.o"

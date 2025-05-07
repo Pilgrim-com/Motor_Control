@@ -52,7 +52,7 @@ TIM_HandleTypeDef htim5;
 MOTOR prismatic_motor;
 MOTOR revolute_motor;
 
-float target_position = 350.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
+float target_position = 0.0; // [rad/s] ตัวอย่างค่าที่เราต้องการ
 
 // PID_Velocity gain
 float Kp_velo = 75.0;
@@ -63,7 +63,7 @@ float error_velo = 0.00;
 
 // PID_Position gain
 float Kp_pos = 5.0;
-float Ki_pos = 0.0;
+float Ki_pos = 0.001;
 float Kd_pos = 0.0;
 float output_pos = 0.00;
 float error_pos = 0.00;
@@ -75,6 +75,7 @@ int32_t setpoint = 0;
 QEI prismatic_encoder;
 CONTROLLER prismatic_pos_control;
 CONTROLLER prismatic_vel_control;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,6 +147,7 @@ int main(void)
 	HAL_TIM_Base_Start_IT(&htim5);
 
 	HAL_TIM_Base_Start_IT(&htim2);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -164,6 +166,10 @@ int main(void)
 //
 	    // sin Wave
 //		target_velocity = 200*sin(2*M_PI*5*(HAL_GetTick()/10e3));
+		PID_POS.Kp =Kp_pos;
+		PID_POS.Ki =Ki_pos;
+		PID_POS.Kd = Kd_pos;
+		arm_pid_init_f32(&PID_POS, 0);
 	}
   /* USER CODE END 3 */
 }
@@ -508,7 +514,7 @@ static void MX_GPIO_Init(void)
 void Prismatic_CasCadeControl() {
 	error_pos = target_position - prismatic_encoder.rads;
 
-	output_pos = arm_pid_f32(&PID, error_pos);
+	output_pos = arm_pid_f32(&PID_POS, error_pos);
 
 	if (output_pos > 340) {output_pos = 340;}
 	else if (output_pos < -340) {output_pos = -340;}
