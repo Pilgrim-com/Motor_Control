@@ -25,6 +25,7 @@
 #include "arm_math.h"
 #include "QEI.h"
 #include "PID.h"
+#include "Kalman.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,14 +69,25 @@ float Kd_pos = 0.0;
 float output_pos = 0.00;
 float error_pos = 0.00;
 //PID_Position CMSIS
-arm_pid_instance_f32 PID_POS = {0};
+arm_pid_instance_f32 PID_POS = { 0 };
 
 int32_t setpoint = 0;
 
 QEI prismatic_encoder;
 CONTROLLER prismatic_pos_control;
 CONTROLLER prismatic_vel_control;
+KALMAN prismatic_kalman;
 
+float32_t A_f32[16] = { 1.0, 0.001, -0.0453, -0.0001, 0.0, 0.9740, -90.2495,
+		0.0587, 0.0, 0.0, 1.0, 0.0, 0.0, -0.02, 1.7666, -0.0012 };
+
+float32_t B_f32[4] = { 0.0003, 0.6895, 0.0, 0.5453 };
+
+double kalman_rads;
+double kalman_radps;
+
+float Q = 1.0;
+float R = 1.0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -130,8 +142,8 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-	PID_POS.Kp =Kp_pos;
-	PID_POS.Ki =Ki_pos;
+	PID_POS.Kp = Kp_pos;
+	PID_POS.Ki = Ki_pos;
 	PID_POS.Kd = Kd_pos;
 	arm_pid_init_f32(&PID_POS, 0);
 
@@ -143,6 +155,8 @@ int main(void)
 
 	PIDInit(&prismatic_pos_control, 340, -340);
 	PIDInit(&prismatic_vel_control, 65535, -65535);
+
+	KalmanInit(&prismatic_kalman, A_f32, B_f32, Q, R);
 
 	HAL_TIM_Base_Start_IT(&htim5);
 
@@ -156,20 +170,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		// square wave
-//	    if (HAL_GetTick() - last_toggle_time >= 5000)  // 5 วินาที
-//	    {
-//	        last_toggle_time = HAL_GetTick();          // รีเซ็ตเวลา
-//	        velocity_sign = !velocity_sign;            // Toggle สัญญาณ
-//	        target_position = (velocity_sign ? 200.0f : -200.0f);
-//	    }
-//
-	    // sin Wave
-//		target_velocity = 200*sin(2*M_PI*5*(HAL_GetTick()/10e3));
-		PID_POS.Kp =Kp_pos;
-		PID_POS.Ki =Ki_pos;
-		PID_POS.Kd = Kd_pos;
-		arm_pid_init_f32(&PID_POS, 0);
 	}
   /* USER CODE END 3 */
 }
@@ -473,11 +473,17 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
+  /*Configure GPIO pins : B1_Pin PC3 */
+  GPIO_InitStruct.Pin = B1_Pin|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA0 PA1 PA4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LPUART1_TX_Pin LPUART1_RX_Pin */
   GPIO_InitStruct.Pin = LPUART1_TX_Pin|LPUART1_RX_Pin;
@@ -516,13 +522,16 @@ void Prismatic_CasCadeControl() {
 
 	output_pos = arm_pid_f32(&PID_POS, error_pos);
 
-	if (output_pos > 340) {output_pos = 340;}
-	else if (output_pos < -340) {output_pos = -340;}
-
+	if (output_pos > 340) {
+		output_pos = 340;
+	} else if (output_pos < -340) {
+		output_pos = -340;
+	}
 
 	error_velo = output_pos - prismatic_encoder.radps;
 
-	output_velo = PIDCompute(&prismatic_vel_control, Kp_velo, Ki_velo, Kd_velo, error_velo);
+	output_velo = PIDCompute(&prismatic_vel_control, Kp_velo, Ki_velo, Kd_velo,
+			error_velo);
 
 	// Motor control
 	MotorSet(&prismatic_motor, 1000, output_velo);
@@ -531,8 +540,18 @@ void Prismatic_CasCadeControl() {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 	if (htim == &htim2) {
-		Prismatic_CasCadeControl();
+//		Prismatic_CasCadeControl();
+
+		MotorSet(&prismatic_motor, 1000, 65535);
 		QEIPosVelUpdate(&prismatic_encoder);
+
+//		KalmanUpdate(&prismatic_kalman, prismatic_encoder.rads);
+		KalmanPrediction(&prismatic_kalman, 12.0);
+
+		kalman_rads = prismatic_kalman.X_pred.pData[0];
+		kalman_radps = prismatic_kalman.X_pred.pData[1];
+
+
 	}
 
 }
