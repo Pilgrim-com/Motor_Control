@@ -548,8 +548,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 //		KalmanUpdate(&prismatic_kalman, prismatic_encoder.rads);
 		KalmanPrediction(&prismatic_kalman, 12.0);
 
-		kalman_rads = prismatic_kalman.X_pred.pData[0];
-		kalman_radps = prismatic_kalman.X_pred.pData[1];
+//		kalman_rads = prismatic_kalman.X_pred.pData[0];
+//		kalman_radps = prismatic_kalman.X_pred.pData[1];
 
 
 	}
