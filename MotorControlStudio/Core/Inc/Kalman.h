@@ -23,7 +23,9 @@ typedef struct {
 
     //Matrix H
     float32_t H_f32[4];
+    float32_t H_t_f32[4];
     arm_matrix_instance_f32 H;
+    arm_matrix_instance_f32 H_t;
 
     float32_t I_f32[16];
     arm_matrix_instance_f32 I;

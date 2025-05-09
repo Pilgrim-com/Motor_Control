@@ -33,6 +33,12 @@ void KalmanInit(KALMAN *kalman, float32_t Matrix_A[16], float32_t Matrix_B[4], f
 	memcpy(kalman->H_f32, H_new, sizeof(H_new));
 	arm_mat_init_f32(&kalman->H, 1, 4, kalman->H_f32);
 
+	//MatrixH traspose
+	float32_t H_t_new[4] = {0, 0, 0, 0};
+	memcpy(kalman->H_t_f32, H_t_new, sizeof(H_t_new));
+	arm_mat_init_f32(&kalman->H_t, 1,4,kalman->H_t_f32);
+	arm_mat_trans_f32(&kalman->H, &kalman->H_t);
+
 	//Matrix I
 	float32_t I_new[16] =
 	{
@@ -104,8 +110,8 @@ void KalmanPrediction(KALMAN *kalman, float32_t control_input)
     arm_mat_init_f32(&kalman->U, 1, 1, kalman->U_f32);
 
     // Temporary matrices for intermediate results
-    arm_matrix_instance_f32 temp1, temp2;
-    float32_t temp1_data[4], temp2_data[16];
+    arm_matrix_instance_f32 temp1, temp2, temp3;
+    float32_t temp1_data[4], temp2_data[16], temp3_data[16];
 
     // Step 1: X_pred = A * X + B * U
     arm_mat_init_f32(&temp1, 4, 1, temp1_data);
@@ -114,11 +120,17 @@ void KalmanPrediction(KALMAN *kalman, float32_t control_input)
     arm_mat_add_f32(&temp1, &kalman->X_pred, &kalman->X_pred);  // X_pred = A*X + B*U
 
     // Step 2: P_pred = A * P * A^T + Q
-    arm_mat_init_f32(&temp1, 4, 4, temp1_data);
     arm_mat_init_f32(&temp2, 4, 4, temp2_data);
-    arm_mat_mult_f32(&kalman->A, &kalman->P, &temp1);  // temp1 = A * P
-    arm_mat_mult_f32(&temp1, &kalman->A_t, &temp2);    // temp2 = A * P * A^T
-    arm_mat_add_f32(&temp2, &kalman->Q, &kalman->P_pred);  // P_pred = A*P*A^T + Q
+    arm_mat_init_f32(&temp3, 4, 4, temp3_data);
+    arm_mat_mult_f32(&kalman->A, &kalman->P, &temp2);  // temp1 = A * P
+    arm_mat_mult_f32(&temp2, &kalman->A_t, &temp3);    // temp2 = A * P * A^T
+    arm_mat_add_f32(&temp3, &kalman->Q, &kalman->P_pred);  // P_pred = A*P*A^T + Q
+
+    // after computing P_pred …
+    memcpy(kalman->P_f32,
+           kalman->P_pred_f32,
+           16 * sizeof(float32_t));
+    arm_mat_init_f32(&kalman->P, 4, 4, kalman->P_f32);
 }
 
 // Update Step
@@ -129,37 +141,43 @@ void KalmanUpdate(KALMAN *kalman, double measurement)
     arm_mat_init_f32(&kalman->Z, 1, 1, kalman->Z_f32);
 
     // Temporary matrices
-    arm_matrix_instance_f32 temp1, temp2, temp3, H_t;
-    float32_t temp1_data[4], temp2_data[4], temp3_data[1], H_t_data[4];
+    arm_matrix_instance_f32 temp1, temp2, temp3, temp4, temp5, temp6, temp7, temp8;
+    float32_t temp1_data[1], temp2_data[16], temp3_data[4], temp4_data[1], temp5_data[1], temp6_data[4], temp7_data[16], temp8_data[16];
 
-    // Step 1: Compute Kalman Gain K = P_pred * H^T * (H * P_pred * H^T + R)^-1
-    arm_mat_init_f32(&H_t, 4, 1, H_t_data);
-    arm_mat_trans_f32(&kalman->H, &H_t);  // H_t = H^T
+    // Step 1: Compute Kalman Gain K = P_pred * H^T * (H * P_pred * H^T + R)^-1T
 
     // Compute S = H * P_pred * H^T + R
     arm_mat_init_f32(&temp1, 1, 4, temp1_data);
     arm_mat_init_f32(&temp2, 1, 1, temp2_data);
     arm_mat_mult_f32(&kalman->H, &kalman->P_pred, &temp1);  // temp1 = H * P_pred
-    arm_mat_mult_f32(&temp1, &H_t, &temp2);                // temp2 = H * P_pred * H^T
+    arm_mat_mult_f32(&temp1, &kalman->H_t, &temp2);                // temp2 = H * P_pred * H^T
     arm_mat_add_f32(&temp2, &kalman->R, &temp2);           // temp2 = S = H*P_pred*H^T + R
 
     // Compute K = P_pred * H^T * inv(S)
-    float32_t S_inv_data[1];
+    float s = temp2_data[0];
+    float s_inv = 1.0f / s;
+    float32_t S_inv_data[1] = {s_inv};
     arm_matrix_instance_f32 S_inv;
     arm_mat_init_f32(&S_inv, 1, 1, S_inv_data);
-    arm_mat_inverse_f32(&temp2, &S_inv);  // S_inv = inv(S)
 
-    arm_mat_mult_f32(&kalman->P_pred, &H_t, &temp1);  // temp1 = P_pred * H^T
-    arm_mat_mult_f32(&temp1, &S_inv, &kalman->K);     // K = P_pred * H^T * inv(S)
+
+    arm_mat_init_f32(&temp3, 4, 1, temp3_data);
+    arm_mat_mult_f32(&kalman->P_pred, &kalman->H_t, &temp3);  // temp3 = P_pred * H^T
+    arm_mat_mult_f32(&temp3, &S_inv, &kalman->K);     // K = P_pred * H^T * inv(S)
 
     // Step 2: Update state X = X_pred + K * (Z - H * X_pred)
-    arm_mat_mult_f32(&kalman->H, &kalman->X_pred, &temp2);  // temp2 = H * X_pred
-    arm_mat_sub_f32(&kalman->Z, &temp2, &temp2);           // temp2 = Z - H * X_pred
-    arm_mat_mult_f32(&kalman->K, &temp2, &temp1);          // temp1 = K * (Z - H * X_pred)
-    arm_mat_add_f32(&kalman->X_pred, &temp1, &kalman->X);   // X = X_pred + K*(Z - H*X_pred)
+    arm_mat_init_f32(&temp4, 1, 1, temp4_data);
+    arm_mat_init_f32(&temp5, 1, 1, temp5_data);
+    arm_mat_init_f32(&temp6, 4, 1, temp6_data);
+    arm_mat_mult_f32(&kalman->H, &kalman->X_pred, &temp4);  // temp4 = H * X_pred
+    arm_mat_sub_f32(&kalman->Z, &temp4, &temp5);           // temp5 = Z - H * X_pred
+    arm_mat_mult_f32(&kalman->K, &temp5, &temp6);          // temp6 = K * (Z - H * X_pred)
+    arm_mat_add_f32(&kalman->X_pred, &temp6, &kalman->X);   // X = X_pred + K*(Z - H*X_pred)
 
     // Step 3: Update covariance P = (I - K * H) * P_pred
-    arm_mat_mult_f32(&kalman->K, &kalman->H, &temp1);  // temp1 = K * H
-    arm_mat_sub_f32(&kalman->I, &temp1, &temp1);       // temp1 = I - K * H
-    arm_mat_mult_f32(&temp1, &kalman->P_pred, &kalman->P);  // P = (I - K*H) * P_pred
+    arm_mat_init_f32(&temp7, 4, 4, temp7_data);
+    arm_mat_init_f32(&temp8, 4, 4, temp8_data);
+    arm_mat_mult_f32(&kalman->K, &kalman->H, &temp7);  // temp7 = K * H
+    arm_mat_sub_f32(&kalman->I, &temp7, &temp8);       // temp8 = I - K * H
+    arm_mat_mult_f32(&temp8, &kalman->P_pred, &kalman->P);  // P = (I - K*H) * P_pred
 }

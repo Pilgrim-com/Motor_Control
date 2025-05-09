@@ -86,8 +86,9 @@ float32_t B_f32[4] = { 0.0003, 0.6895, 0.0, 0.5453 };
 double kalman_rads;
 double kalman_radps;
 
-float Q = 1.0;
+float Q = 0.001;
 float R = 1.0;
+float motor_voltage = 0.0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -544,12 +545,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 		MotorSet(&prismatic_motor, 1000, 65535);
 		QEIPosVelUpdate(&prismatic_encoder);
-
-//		KalmanUpdate(&prismatic_kalman, prismatic_encoder.rads);
-		KalmanPrediction(&prismatic_kalman, 12.0);
-
-//		kalman_rads = prismatic_kalman.X_pred.pData[0];
-//		kalman_radps = prismatic_kalman.X_pred.pData[1];
+//
+		KalmanUpdate(&prismatic_kalman, prismatic_encoder.rads);
+		KalmanPrediction(&prismatic_kalman, motor_voltage);
+//
+		kalman_rads = prismatic_kalman.X_pred.pData[0];
+		kalman_radps = prismatic_kalman.X_pred.pData[1];
 
 
 	}
