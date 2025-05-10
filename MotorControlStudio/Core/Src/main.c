@@ -63,9 +63,9 @@ float output_velo = 0.00;
 float error_velo = 0.00;
 
 // PID_Position gain
-float Kp_pos = 5.0;
+float Kp_pos = 8.0;
 float Ki_pos = 0.001;
-float Kd_pos = 0.0;
+float Kd_pos = 2.5;
 float output_pos = 0.00;
 float error_pos = 0.00;
 //PID_Position CMSIS
@@ -86,9 +86,10 @@ float32_t B_f32[4] = { 0.0003, 0.6895, 0.0, 0.5453 };
 double kalman_rads;
 double kalman_radps;
 
-float Q = 0.001;
-float R = 1.0;
+float Q = 1.0;
+float R = 0.001;
 float motor_voltage = 0.0;
+float error_rads = 0.0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -519,7 +520,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void Prismatic_CasCadeControl() {
-	error_pos = target_position - prismatic_encoder.rads;
+	error_pos = target_position - kalman_rads;
 
 	output_pos = arm_pid_f32(&PID_POS, error_pos);
 
@@ -529,10 +530,16 @@ void Prismatic_CasCadeControl() {
 		output_pos = -340;
 	}
 
-	error_velo = output_pos - prismatic_encoder.radps;
+	error_velo = output_pos - kalman_radps;
 
 	output_velo = PIDCompute(&prismatic_vel_control, Kp_velo, Ki_velo, Kd_velo,
 			error_velo);
+
+	KalmanUpdate(&prismatic_kalman, prismatic_encoder.meter);
+	KalmanPrediction(&prismatic_kalman, (output_velo / 65535.0) * 12);
+
+	kalman_rads = prismatic_kalman.X_pred.pData[0];
+	kalman_radps = prismatic_kalman.X_pred.pData[1];
 
 	// Motor control
 	MotorSet(&prismatic_motor, 1000, output_velo);
@@ -541,16 +548,11 @@ void Prismatic_CasCadeControl() {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 	if (htim == &htim2) {
-//		Prismatic_CasCadeControl();
-
-		MotorSet(&prismatic_motor, 1000, 65535);
+//		MotorSet(&prismatic_motor, 1000, 65535);
 		QEIPosVelUpdate(&prismatic_encoder);
-//
-		KalmanUpdate(&prismatic_kalman, prismatic_encoder.rads);
-		KalmanPrediction(&prismatic_kalman, motor_voltage);
-//
-		kalman_rads = prismatic_kalman.X_pred.pData[0];
-		kalman_radps = prismatic_kalman.X_pred.pData[1];
+		Prismatic_CasCadeControl();
+
+		error_rads = prismatic_encoder.rads - prismatic_kalman.X_pred.pData[0];
 
 
 	}

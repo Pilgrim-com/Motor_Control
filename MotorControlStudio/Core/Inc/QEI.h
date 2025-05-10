@@ -25,6 +25,7 @@ typedef struct
 	int32_t pulses;
 	float revs;
 	float rads;
+	float meter;
 	int32_t diff_count;
 
 	// Velocity

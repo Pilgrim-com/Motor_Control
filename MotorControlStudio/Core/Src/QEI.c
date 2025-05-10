@@ -51,6 +51,8 @@ void QEIPosVelUpdate(QEI *qei)
  	// Radian
  	qei -> rads = qei->revs * 2 * M_PI;
 
+ 	//meter: mm
+ 	qei->meter = qei->revs * 16;
 
  	// Angular velocity calculation
  	qei -> radps = ((qei->diff_count * qei->frequency)*2*M_PI/qei->ppr);
